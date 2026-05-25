@@ -60,6 +60,7 @@ var (
 	currentIndex   atomic.Uint32
 	urgentAddChan  = make(chan struct{}, UrgentAddChanSize)
 	cachedLink     atomic.Pointer[netlink.Link] // Cache the netlink handle
+	ipPoolEnabled  bool
 )
 
 var bufferPool = sync.Pool{New: func() interface{} {
@@ -132,6 +133,10 @@ func normalizeIPv6(ipStr string) string {
 }
 
 func randomIPv6() string {
+	if IPv6Prefix == "" {
+		return ""
+	}
+
 	hostPart1 := rand.Uint32()
 	hostPart2 := rand.Uint32()
 
@@ -151,6 +156,10 @@ func randomIPv6() string {
 }
 
 func addIPv6ToInterface(ipv6 string) bool {
+	if ipv6 == "" {
+		return false
+	}
+
 	done := make(chan bool, 1)
 
 	go func() {
@@ -451,7 +460,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	var tracker *IPUsageTracker
 	var client *http.Client
 
-	if useNormalParam {
+	if useNormalParam || !ipPoolEnabled {
 		client = defaultClient
 		if Debug {
 			fmt.Println("Using system default IP as requested")
@@ -683,8 +692,19 @@ func checkPrivileges() bool {
 }
 
 func onStartup() bool {
+	if SharedSecret == "" {
+		log.Fatal("ERROR: I6_SHARED_SECRET must be configured")
+		return false
+	}
+
 	if !checkPrivileges() {
 		return false
+	}
+
+	if IPv6Prefix == "" {
+		log.Printf("I6_IPV6_PREFIX is not configured; running normal egress proxy mode")
+		ipPoolEnabled = false
+		return true
 	}
 
 	link, err := getLink()
@@ -703,6 +723,7 @@ func onStartup() bool {
 
 	testIP := randomIPv6()
 	addIPv6ToInterface(testIP)
+	ipPoolEnabled = true
 
 	return true
 }
@@ -739,21 +760,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	go func() {
-		time.Sleep(1 * time.Second)
-		cleanupWrongSubnetIPs()
-		manageIPPool()
-	}()
+	if ipPoolEnabled {
+		go func() {
+			time.Sleep(1 * time.Second)
+			cleanupWrongSubnetIPs()
+			manageIPPool()
+		}()
 
-	go func() {
-		time.Sleep(5 * time.Second)
-		periodicIPFlush()
-	}()
+		go func() {
+			time.Sleep(5 * time.Second)
+			periodicIPFlush()
+		}()
 
-	go func() {
-		time.Sleep(3 * time.Second)
-		periodicUnusedIPFlush()
-	}()
+		go func() {
+			time.Sleep(3 * time.Second)
+			periodicUnusedIPFlush()
+		}()
+	}
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", ListenHost, ListenPort),

@@ -1,16 +1,33 @@
 package main
 
-import "time"
+import (
+	"os"
+	"strconv"
+	"time"
+)
+
+func envString(key string, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func envInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
 
 const (
-	SharedSecret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" // Secret between client & server
-	Version      = "3.1"                              // Version of the script
-	IPv6Prefix   = "xxxx:xxxx:xxxx"                   // Your /48 prefix
-	IPv6Subnet   = "6000"                             // Using subnet 6000 within your /48
-	Interface    = "ens3"                             // Network interface
-	ListenPort   = 80                                 // Proxy server port
-	ListenHost   = "0.0.0.0"                          // Listen on all interfaces
-	Debug        = false                              // Enable debug output
+	Version = "3.1" // Version of the script
+	Debug   = false // Enable debug output
 
 	// Timeouts
 	RequestTimeout      = 30 * time.Second
@@ -52,6 +69,15 @@ const (
 	UrgentAddChanSize  = 20
 )
 
+var (
+	SharedSecret = envString("I6_SHARED_SECRET", "")
+	IPv6Prefix   = envString("I6_IPV6_PREFIX", "")
+	IPv6Subnet   = envString("I6_IPV6_SUBNET", "6000")
+	Interface    = envString("I6_INTERFACE", "eth0")
+	ListenPort   = envInt("I6_LISTEN_PORT", 8080)
+	ListenHost   = envString("I6_LISTEN_HOST", "0.0.0.0")
+)
+
 // FAMILY_V6 is AF_INET6 used by netlink
 const FAMILY_V6 = 10
 
@@ -71,6 +97,7 @@ var headersToStripBeforeForwarding = map[string]bool{
 	"cf-visitor":        true,
 	"cf-worker":         true,
 	"cf-ew-via":         true,
+	"api-token":         true,
 	"x-forwarded-for":   true,
 	"x-forwarded-proto": true,
 	"cdn-loop":          true,
